@@ -1,0 +1,2 @@
+-- Baseline migration: establishes Flyway version history.
+-- The schema is owned entirely by Flyway; ledger tables arrive in V2+.
