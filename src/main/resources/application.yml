@@ -1,0 +1,15 @@
+spring:
+  application:
+    name: ledger-service
+  # Defaults match docker-compose.yml; override with SPRING_DATASOURCE_* env vars.
+  datasource:
+    url: jdbc:postgresql://localhost:${POSTGRES_PORT:5432}/ledger
+    username: ledger
+    password: ledger
+    hikari:
+      # Fail fast (default is 30s) so /health reports DOWN promptly
+      # instead of hanging when the database is unreachable.
+      connection-timeout: 5000
+  # Flyway owns the schema (migrations in src/main/resources/db/migration).
+  flyway:
+    enabled: true
