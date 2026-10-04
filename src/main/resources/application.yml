@@ -13,3 +13,8 @@ spring:
   # Flyway owns the schema (migrations in src/main/resources/db/migration).
   flyway:
     enabled: true
+  jackson:
+    deserialization:
+      # Money is integer minor units. Jackson's default would silently
+      # truncate {"amount": 10.99} to 10; reject it with a 400 instead.
+      accept-float-as-int: false

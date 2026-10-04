@@ -28,6 +28,7 @@ class LedgerSchemaTest {
 
     private static final String CHECK_VIOLATION = "23514";
     private static final String INTEGRITY_CONSTRAINT_VIOLATION = "23000";
+    private static final String FOREIGN_KEY_VIOLATION = "23503";
 
     @Autowired
     JdbcTemplate jdbc;
@@ -73,7 +74,7 @@ class LedgerSchemaTest {
     void balancedTransferCommits() {
         long from = createAccount(1_000);
         long to = createAccount(0);
-        UUID transfer = UUID.randomUUID();
+        UUID transfer = createTransfer(from, to, 500);
 
         tx.executeWithoutResult(status -> {
             insertEntry(from, transfer, -500);
@@ -87,7 +88,7 @@ class LedgerSchemaTest {
     void unbalancedTransferIsRejectedAtCommit() {
         long from = createAccount(1_000);
         long to = createAccount(0);
-        UUID transfer = UUID.randomUUID();
+        UUID transfer = createTransfer(from, to, 500);
 
         // Both INSERTs succeed individually; the deferred trigger fires at
         // COMMIT and rolls back the whole transaction.
@@ -103,7 +104,7 @@ class LedgerSchemaTest {
     @Test
     void singleLegTransferIsRejected() {
         long id = createAccount(0);
-        UUID transfer = UUID.randomUUID();
+        UUID transfer = createTransfer(id, createAccount(0), 500);
 
         // Autocommit: the statement's implicit commit runs the deferred check.
         Throwable thrown = catchThrowable(() -> insertEntry(id, transfer, 500));
@@ -115,10 +116,20 @@ class LedgerSchemaTest {
     @Test
     void zeroAmountEntryIsRejected() {
         long id = createAccount(0);
+        UUID transfer = createTransfer(id, createAccount(0), 500);
 
-        Throwable thrown = catchThrowable(() -> insertEntry(id, UUID.randomUUID(), 0));
+        Throwable thrown = catchThrowable(() -> insertEntry(id, transfer, 0));
 
         assertConstraintViolation(thrown, CHECK_VIOLATION, "entries_amount_non_zero");
+    }
+
+    @Test
+    void entryForUnknownTransferIsRejected() {
+        long id = createAccount(0);
+
+        Throwable thrown = catchThrowable(() -> insertEntry(id, UUID.randomUUID(), 500));
+
+        assertConstraintViolation(thrown, FOREIGN_KEY_VIOLATION, "entries_transfer_id_fkey");
     }
 
     // --- entries are append-only -----------------------------------------
@@ -127,7 +138,7 @@ class LedgerSchemaTest {
     void entriesCannotBeUpdatedOrDeleted() {
         long from = createAccount(1_000);
         long to = createAccount(0);
-        UUID transfer = UUID.randomUUID();
+        UUID transfer = createTransfer(from, to, 500);
         tx.executeWithoutResult(status -> {
             insertEntry(from, transfer, -500);
             insertEntry(to, transfer, 500);
@@ -151,6 +162,14 @@ class LedgerSchemaTest {
         return jdbc.queryForObject(
                 "INSERT INTO accounts (name, balance) VALUES (?, ?) RETURNING id",
                 Long.class, "acct-" + UUID.randomUUID(), balance);
+    }
+
+    /** A transfers row for entries to reference (required by the V3 FK). */
+    private UUID createTransfer(long fromAccountId, long toAccountId, long amount) {
+        return jdbc.queryForObject("""
+                INSERT INTO transfers (idempotency_key, from_account_id, to_account_id, amount)
+                VALUES (?, ?, ?, ?) RETURNING id
+                """, UUID.class, "key-" + UUID.randomUUID(), fromAccountId, toAccountId, amount);
     }
 
     private long balanceOf(long accountId) {
